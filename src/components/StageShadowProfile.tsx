@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface StageShadowProfileProps {
@@ -6,207 +6,299 @@ interface StageShadowProfileProps {
   onComplete: () => void;
 }
 
-interface ProfileTag {
+interface EvidenceCard {
+  id: string;
+  activityId: string;
   label: string;
-  color: string;
-  risk: string;
-  value: number; // cents per year
+  icon: string;
 }
 
-function generateTags(activities: string[]): ProfileTag[] {
-  const tags: ProfileTag[] = [];
+interface Bucket {
+  id: string;
+  label: string;
+  icon: string;
+  color: string; // tailwind neon class
+  glowVar: string;
+}
+
+interface PlatformTag {
+  label: string;
+  risk: string;
+  colorClass: string;
+  value: number;
+}
+
+const BUCKETS: Bucket[] = [
+  { id: "vulnerability", label: "Commercial Vulnerability", icon: "🎯", color: "neon-text-orange", glowVar: "var(--glow-orange)" },
+  { id: "income", label: "Estimated Income", icon: "💰", color: "neon-text-blue", glowVar: "var(--glow-blue)" },
+  { id: "mental", label: "Mental Health Flag", icon: "🧠", color: "neon-text-purple", glowVar: "var(--glow-purple)" },
+];
+
+function buildCards(activities: string[]): EvidenceCard[] {
+  const cards: EvidenceCard[] = [];
   if (activities.includes("anxiety")) {
-    tags.push({ label: "VULNERABLE / HIGH ENGAGEMENT", color: "neon-red", risk: "Mental health keywords detected. You'll be served 'relatable' content designed to keep you scrolling.", value: 2840 });
+    cards.push({ id: "anxiety-1", activityId: "anxiety", label: "Searched 'anxiety symptoms'", icon: "🔍" });
+    cards.push({ id: "anxiety-2", activityId: "anxiety", label: "Clicked depression quiz", icon: "📋" });
   }
   if (activities.includes("fitspiration")) {
-    tags.push({ label: "BODY IMAGE / SUPPLEMENTS", color: "neon-orange", risk: "Fitness engagement flagged. Expect ads for diet pills, 'transformation' programs, and unrealistic body standards.", value: 3120 });
+    cards.push({ id: "fit-1", activityId: "fitspiration", label: "Liked fitspiration reel", icon: "💪" });
+    cards.push({ id: "fit-2", activityId: "fitspiration", label: "Saved a diet plan", icon: "📌" });
   }
   if (activities.includes("ai-chat")) {
-    tags.push({ label: "AI DATA HARVESTER", color: "neon-purple", risk: "Your AI chats are mined for preferences, emotional state, and personal data to refine targeting.", value: 1890 });
+    cards.push({ id: "ai-1", activityId: "ai-chat", label: "Chatted secrets with AI", icon: "🤖" });
+    cards.push({ id: "ai-2", activityId: "ai-chat", label: "Asked AI relationship advice", icon: "💬" });
   }
   if (activities.includes("gaming")) {
-    tags.push({ label: "IN-GAME SPENDING TARGET", color: "neon-green", risk: "Extended play sessions flagged. You'll see loot boxes, time-limited offers, and social pressure to spend.", value: 4200 });
+    cards.push({ id: "game-1", activityId: "gaming", label: "4-hour gaming session", icon: "🎮" });
+    cards.push({ id: "game-2", activityId: "gaming", label: "Bought in-game currency", icon: "💳" });
   }
   if (activities.includes("shorts")) {
-    tags.push({ label: "INFINITE SCROLL SUSCEPTIBLE", color: "neon-blue", risk: "Short-form video engagement tracked. Algorithm will optimize for maximum watch time.", value: 2100 });
+    cards.push({ id: "short-1", activityId: "shorts", label: "Watched 47 Shorts in a row", icon: "📱" });
+    cards.push({ id: "short-2", activityId: "shorts", label: "2am doomscroll session", icon: "🌙" });
   }
-  return tags;
+  if (cards.length === 0) {
+    cards.push({ id: "default-1", activityId: "default", label: "Opened the app", icon: "📲" });
+    cards.push({ id: "default-2", activityId: "default", label: "Scrolled the feed", icon: "👆" });
+  }
+  return cards;
 }
 
-const BASE_VALUE = 1250; // base profile value in cents
+function getPlatformProfile(activities: string[]): { tags: PlatformTag[]; totalValue: number } {
+  const tags: PlatformTag[] = [];
+  let total = 1250;
+  if (activities.includes("anxiety")) {
+    tags.push({ label: "VULNERABLE / HIGH ENGAGEMENT", risk: "Mental health keywords detected. Tagged for 'relatable' content loops designed to maximize distress-driven engagement. Ad CPM: +340%.", colorClass: "neon-text-orange", value: 2840 });
+    total += 2840;
+  }
+  if (activities.includes("fitspiration")) {
+    tags.push({ label: "BODY IMAGE / SUPPLEMENTS TARGET", risk: "Body dissatisfaction markers flagged. Queued for diet pill, cosmetic surgery, and 'transformation' program ads. Vulnerability index: CRITICAL.", colorClass: "neon-text-orange", value: 3120 });
+    total += 3120;
+  }
+  if (activities.includes("ai-chat")) {
+    tags.push({ label: "AI DATA HARVESTER — DEEP PROFILE", risk: "Conversational data mined for: emotional state, relationship status, insecurities, purchase intent. Data sold to 14 broker networks.", colorClass: "neon-text-purple", value: 1890 });
+    total += 1890;
+  }
+  if (activities.includes("gaming")) {
+    tags.push({ label: "COMPULSIVE SPENDER / LOOT BOX TARGET", risk: "Extended play + micro-transactions = gambling propensity flag. Loot box frequency increased 5x. Time-limited 'exclusive' offers activated.", colorClass: "neon-text-blue", value: 4200 });
+    total += 4200;
+  }
+  if (activities.includes("shorts")) {
+    tags.push({ label: "INFINITE SCROLL SUSCEPTIBLE — TIER 1", risk: "Dopamine loop confirmed. Algorithm will reduce content quality to test engagement floor. Watch time optimization: AGGRESSIVE.", colorClass: "neon-text-blue", value: 2100 });
+    total += 2100;
+  }
+  if (tags.length === 0) {
+    tags.push({ label: "BASELINE PROFILE — STILL TRACKED", risk: "Even without activity, your device fingerprint, location, and browsing metadata are collected and sold.", colorClass: "neon-text-purple", value: 0 });
+  }
+  return { tags, totalValue: total };
+}
 
 const StageShadowProfile = ({ activities, onComplete }: StageShadowProfileProps) => {
-  const [phase, setPhase] = useState<"scanning" | "reveal">("scanning");
-  const tags = generateTags(activities);
-  const totalValueCents = BASE_VALUE + tags.reduce((sum, t) => sum + t.value, 0);
-  const [displayValue, setDisplayValue] = useState(0);
+  const cards = buildCards(activities);
+  const [unplaced, setUnplaced] = useState<EvidenceCard[]>(cards);
+  const [bucketContents, setBucketContents] = useState<Record<string, EvidenceCard[]>>({
+    vulnerability: [],
+    income: [],
+    mental: [],
+  });
+  const [draggingCard, setDraggingCard] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"puzzle" | "comparison">("puzzle");
+  const [revealIndex, setRevealIndex] = useState(0);
+  const bucketRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  useEffect(() => {
-    const timer = setTimeout(() => setPhase("reveal"), 2500);
-    return () => clearTimeout(timer);
-  }, []);
+  const allPlaced = unplaced.length === 0;
+  const platform = getPlatformProfile(activities);
 
-  // Animated counter
-  useEffect(() => {
-    if (phase !== "reveal") return;
-    const target = totalValueCents;
-    const duration = 1500;
-    const steps = 40;
-    const increment = target / steps;
-    let current = 0;
-    const interval = setInterval(() => {
-      current += increment;
-      if (current >= target) {
-        setDisplayValue(target);
-        clearInterval(interval);
-      } else {
-        setDisplayValue(Math.floor(current));
-      }
-    }, duration / steps);
-    return () => clearInterval(interval);
-  }, [phase, totalValueCents]);
+  const handleDragStart = (cardId: string) => {
+    setDraggingCard(cardId);
+  };
+
+  const handleDrop = useCallback((bucketId: string) => {
+    if (!draggingCard) return;
+    const card = unplaced.find(c => c.id === draggingCard);
+    if (!card) return;
+    setUnplaced(prev => prev.filter(c => c.id !== draggingCard));
+    setBucketContents(prev => ({ ...prev, [bucketId]: [...prev[bucketId], card] }));
+    setDraggingCard(null);
+  }, [draggingCard, unplaced]);
+
+  const handleReveal = () => {
+    setPhase("comparison");
+    // Staggered reveal
+    platform.tags.forEach((_, i) => {
+      setTimeout(() => setRevealIndex(i + 1), (i + 1) * 600);
+    });
+  };
 
   const formatDollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
   return (
-    <div className="min-h-screen flex flex-col items-center px-4 py-8 pb-24 cyber-grid">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="w-full max-w-sm mx-auto"
-      >
-        <h2 className="text-xl sm:text-2xl font-display font-bold text-center mb-2">
-          <span className="neon-text-purple">Stage 2:</span> Shadow Profile
+    <div className="min-h-screen flex flex-col items-center px-3 py-6 pb-28 cyber-grid">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full max-w-md mx-auto">
+        <h2 className="text-xl sm:text-2xl font-display font-bold text-center mb-1">
+          <span className="neon-text-purple">Stage 2:</span> Identity Puzzle
         </h2>
-        <p className="data-readout text-center mb-8">
-          // SCANNING YOUR DATA CRUMBS...
+        <p className="data-readout text-center mb-6 text-[10px]">
+          // PROFILE THE SUSPECT — DRAG EVIDENCE INTO BUCKETS
         </p>
 
         <AnimatePresence mode="wait">
-          {phase === "scanning" ? (
-            <motion.div
-              key="scan"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center gap-4"
-            >
-              <div className="relative w-32 h-32">
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="absolute inset-0 border-2 border-primary rounded-full border-t-transparent"
-                  style={{ boxShadow: "var(--glow-blue)" }}
-                />
-                <motion.div
-                  animate={{ rotate: -360 }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                  className="absolute inset-3 border-2 border-accent rounded-full border-b-transparent"
-                  style={{ boxShadow: "var(--glow-purple)" }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center text-4xl">
-                  👤
+          {phase === "puzzle" ? (
+            <motion.div key="puzzle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-5">
+              {/* Evidence Cards */}
+              <div className="space-y-1">
+                <p className="data-readout text-[9px] mb-2">// EVIDENCE CARDS — DRAG TO CLASSIFY</p>
+                <div className="flex flex-wrap gap-2">
+                  {unplaced.map(card => (
+                    <motion.div
+                      key={card.id}
+                      draggable
+                      onDragStart={() => handleDragStart(card.id)}
+                      onDragEnd={() => setDraggingCard(null)}
+                      whileHover={{ scale: 1.05, y: -2 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="cursor-grab active:cursor-grabbing border border-border rounded-lg px-3 py-2 bg-card/80 backdrop-blur text-xs font-mono flex items-center gap-2 select-none"
+                      style={{ boxShadow: "0 0 8px hsl(var(--primary) / 0.3)" }}
+                      layout
+                    >
+                      <span className="text-base">{card.icon}</span>
+                      <span className="text-foreground">{card.label}</span>
+                    </motion.div>
+                  ))}
+                  {allPlaced && (
+                    <p className="text-xs font-mono text-muted-foreground italic px-2">All evidence classified.</p>
+                  )}
                 </div>
               </div>
 
-              <div className="font-mono text-xs text-muted-foreground text-center space-y-1">
-                <motion.p animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                  Aggregating browsing patterns...
-                </motion.p>
-                <motion.p animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity, delay: 0.5 }}>
-                  Cross-referencing ad profiles...
-                </motion.p>
-                <motion.p animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity, delay: 1 }}>
-                  Estimating commercial value...
-                </motion.p>
+              {/* Buckets */}
+              <div className="space-y-3">
+                {BUCKETS.map(bucket => (
+                  <div
+                    key={bucket.id}
+                    ref={el => { bucketRefs.current[bucket.id] = el; }}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={() => handleDrop(bucket.id)}
+                    className={`border-2 border-dashed rounded-xl p-3 min-h-[60px] transition-colors ${
+                      draggingCard ? "border-primary/60 bg-primary/5" : "border-border/50 bg-card/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">{bucket.icon}</span>
+                      <span className={`font-display font-semibold text-xs ${bucket.color}`}>{bucket.label}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {bucketContents[bucket.id].map(card => (
+                        <motion.div
+                          key={card.id}
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="border border-border/60 rounded px-2 py-1 bg-muted/30 text-[10px] font-mono flex items-center gap-1"
+                        >
+                          <span>{card.icon}</span>
+                          <span className="text-muted-foreground">{card.label}</span>
+                        </motion.div>
+                      ))}
+                      {bucketContents[bucket.id].length === 0 && (
+                        <span className="text-[10px] font-mono text-muted-foreground/50 italic">Drop evidence here...</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
+
+              {/* Reveal Button */}
+              <motion.button
+                onClick={handleReveal}
+                disabled={!allPlaced}
+                whileHover={allPlaced ? { scale: 1.03 } : {}}
+                whileTap={allPlaced ? { scale: 0.97 } : {}}
+                className={`w-full py-3 rounded-lg font-display font-semibold transition-all ${
+                  allPlaced
+                    ? "bg-secondary text-secondary-foreground"
+                    : "bg-muted text-muted-foreground cursor-not-allowed opacity-50"
+                }`}
+                style={allPlaced ? { boxShadow: "var(--glow-orange)" } : {}}
+              >
+                {allPlaced ? "Reveal the Platform's Real Profile →" : `Place all evidence first (${unplaced.length} remaining)`}
+              </motion.button>
             </motion.div>
           ) : (
-            <motion.div
-              key="reveal"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="space-y-4"
-            >
-              {/* Data Value Counter */}
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="border-2 border-secondary rounded-xl p-4 bg-secondary/5 text-center"
-                style={{ boxShadow: "var(--glow-orange)" }}
-              >
-                <p className="data-readout text-[10px] mb-1">// ESTIMATED PROFILE VALUE TO DATA BROKERS</p>
-                <p className="font-display font-bold text-3xl neon-text-orange">
-                  {formatDollars(displayValue)}
-                </p>
-                <p className="text-[10px] font-mono text-muted-foreground mt-1">per year</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {tags.map((tag) => (
-                    <div key={tag.label} className="text-[9px] font-mono text-muted-foreground flex justify-between border border-border/50 rounded px-2 py-1">
-                      <span className="truncate mr-1">{tag.label.split("/")[0].trim()}</span>
-                      <span className="neon-text-orange whitespace-nowrap">+{formatDollars(tag.value)}</span>
+            <motion.div key="comparison" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              {/* Your Classification */}
+              <div className="border border-border rounded-xl p-4 bg-card/40 backdrop-blur">
+                <p className="data-readout text-[10px] mb-3">// YOUR CLASSIFICATION</p>
+                <div className="space-y-2">
+                  {BUCKETS.map(bucket => (
+                    <div key={bucket.id} className="flex items-start gap-2">
+                      <span className={`text-xs font-mono font-semibold ${bucket.color} whitespace-nowrap`}>{bucket.icon} {bucket.label.split(" ").slice(0, 2).join(" ")}:</span>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {bucketContents[bucket.id].length > 0
+                          ? bucketContents[bucket.id].map(c => c.label).join(", ")
+                          : "—"}
+                      </span>
                     </div>
                   ))}
-                  <div className="text-[9px] font-mono text-muted-foreground flex justify-between border border-border/50 rounded px-2 py-1">
-                    <span>Base profile</span>
-                    <span className="text-muted-foreground">{formatDollars(BASE_VALUE)}</span>
-                  </div>
                 </div>
-              </motion.div>
+                <p className="text-[10px] font-mono text-muted-foreground/70 mt-3 italic">
+                  You classified {cards.length} data points across {BUCKETS.length} categories.
+                </p>
+              </div>
 
-              {/* Identity Card */}
-              <div className="border-2 border-border rounded-xl overflow-hidden bg-card/80 backdrop-blur" style={{ boxShadow: "var(--glow-purple)" }}>
-                <div className="bg-accent/20 px-4 py-3 border-b border-border">
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-border" />
+                <span className="data-readout text-[9px]">// VS THE PLATFORM</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              {/* Platform's Real Profile */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="border-2 border-destructive/40 rounded-xl overflow-hidden"
+                style={{ boxShadow: "0 0 20px hsl(var(--destructive) / 0.2)" }}
+              >
+                <div className="bg-destructive/10 px-4 py-3 border-b border-destructive/30">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-2xl border border-border">
+                    <div className="w-10 h-10 rounded-full bg-destructive/20 flex items-center justify-center text-xl border border-destructive/40">
                       👤
                     </div>
                     <div>
-                      <p className="font-display font-semibold text-foreground text-sm">COMMERCIAL IDENTITY CARD</p>
-                      <p className="data-readout text-[10px]">ID: #USR-{Math.random().toString(36).substr(2, 8).toUpperCase()}</p>
+                      <p className="font-display font-bold text-foreground text-sm">COMMERCIAL IDENTITY CARD</p>
+                      <p className="data-readout text-[9px]">PROFILE VALUE: <span className="neon-text-orange">{formatDollars(platform.totalValue)}/yr</span></p>
                     </div>
                   </div>
                 </div>
 
                 <div className="p-4 space-y-3">
-                  <p className="data-readout uppercase tracking-widest text-[10px] text-muted-foreground">
-                    // ASSIGNED TAGS
-                  </p>
-                  {tags.map((tag, i) => (
+                  <p className="data-readout text-[9px] text-destructive/70">// PLATFORM'S ACTUAL CLASSIFICATION — AUTOMATED, CLINICAL, AGGRESSIVE</p>
+                  {platform.tags.map((tag, i) => (
                     <motion.div
                       key={tag.label}
                       initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.3 }}
-                      className="border border-border rounded-lg p-3 bg-muted/20"
+                      animate={i < revealIndex ? { opacity: 1, x: 0 } : { opacity: 0, x: -20 }}
+                      className="border border-destructive/30 rounded-lg p-3 bg-destructive/5"
                     >
-                      <div className={`font-mono text-xs font-bold mb-1 ${
-                        tag.color === "neon-red" ? "neon-text-orange" :
-                        tag.color === "neon-orange" ? "neon-text-orange" :
-                        tag.color === "neon-purple" ? "neon-text-purple" :
-                        tag.color === "neon-green" ? "neon-text-blue" :
-                        "neon-text-blue"
-                      }`}>
+                      <div className={`font-mono text-xs font-bold mb-1 ${tag.colorClass}`}>
                         ⚠ {tag.label}
                       </div>
-                      <p className="text-xs text-muted-foreground font-mono leading-relaxed">
+                      <p className="text-[10px] text-muted-foreground font-mono leading-relaxed">
                         {tag.risk}
+                      </p>
+                      <p className="text-[9px] font-mono neon-text-orange mt-1">
+                        Profile value: +{formatDollars(tag.value)}/yr
                       </p>
                     </motion.div>
                   ))}
-
-                  {tags.length === 0 && (
-                    <p className="text-sm text-muted-foreground font-mono text-center py-4">
-                      No activities selected — but platforms still track you.
-                    </p>
-                  )}
                 </div>
-              </div>
+              </motion.div>
 
+              {/* Lesson */}
               <div className="border border-border rounded-lg p-3 bg-card/50">
-                <p className="data-readout text-[10px] mb-1">// THE DOUBLE LOGIC</p>
+                <p className="data-readout text-[10px] mb-1">// THE LESSON</p>
                 <p className="text-xs text-muted-foreground font-mono leading-relaxed">
-                  Platforms are <span className="neon-text-orange">business frameworks</span> designed to ready your data for commercial databases. Your "free" experience is the product — worth <span className="neon-text-orange">{formatDollars(totalValueCents)}/year</span> to brokers.
+                  You sorted {cards.length} clues into {BUCKETS.length} buckets. The platform did it in <span className="neon-text-orange">milliseconds</span> — using hundreds of data points you never saw. Their labels are more <span className="neon-text-purple">clinical</span>, more <span className="neon-text-orange">commercial</span>, and far more <span className="text-destructive">aggressive</span> than anything you imagined.
                 </p>
               </div>
 
